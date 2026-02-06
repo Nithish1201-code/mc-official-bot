@@ -401,6 +401,17 @@ EOF
 # INSTALLATION
 # ============================================================================
 
+install_shared() {
+  log_info "Installing shared dependencies..."
+  
+  cd shared
+  npm install
+  npm run build
+  cd ..
+  
+  log_success "Shared package installed"
+}
+
 install_backend() {
   log_info "Installing backend dependencies..."
   
@@ -414,84 +425,27 @@ install_backend() {
 
 install_bot() {
   log_info "Installing bot dependencies..."
-  Discord Setup
-  log_info "Step 5: Discord Configuration"
-  discord_token=$(prompt_discord_token) || discord_token=""
-  discord_app_id=$(prompt_discord_app_id)
-  echo
   
-  # 6. Create configuration
-  log_info "Step 6: Configuration"
-  create_config "$api_key" "$minecraft_path" "$crafty_path"
-  create_env_files "$api_key" "$discord_token" "$discord_app_id"
-  echo
+  cd bot
+  npm install
+  npm run build
+  cd ..
   
-  # 7. Install dependencies
-  log_info "Step 7: Installation"
-  install_shared
-  install_backend
-  install_bot
-  echo
-  
-  # 8. Run automated tests
-  log_info "Step 8: Testing"
-  run_tests
-  echo ""
-  
-  # 9. Create systemd services
-  log_info "Step 9
+  log_success "Bot installed"
+}
+
 # ============================================================================
 # TESTING
 # ============================================================================
 
 run_tests() {
   log_info "Running automated tests..."
+  local test_failed=0
   echo ""
   echo -e "${BLUE}╔════════════════════════════════════════════════════════════╗${NC}"
   echo -e "${BLUE}║  Test Suite Execution                                      ║${NC}"
   echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
   
-  if [ -n "$discord_token" ]; then
-    echo -e "${GREEN}✓${NC} Discord bot configured and ready"
-    echo
-    echo "Next steps:"
-    echo "1. Start services:"
-    echo "   sudo systemctl start mc-backend.service"
-    echo "   sudo systemctl start mc-bot.service"
-    echo
-    echo "2. Enable auto-start on boot:"
-    echo "   sudo systemctl enable mc-backend.service"
-    echo "   sudo systemctl enable mc-bot.service"
-    echo
-    echo "3. Check status:"
-    echo "   systemctl status mc-backend.service"
-    echo "   systemctl status mc-bot.service"
-    echo
-    echo "4. View logs:"
-    echo "   journalctl -u mc-backend.service -f"
-    echo "   journalctl -u mc-bot.service -f"
-  else
-    echo -e "${YELLOW}⚠${NC}  Discord token not configured"
-    echo
-    echo "Next steps:"
-    echo "1. Add Discord token to bot/.env:"
-    echo "   DISCORD_BOT_TOKEN=your_token_here"
-    echo
-    echo "2. Start services:"
-    echo "   sudo systemctl start mc-backend.service"
-    echo "   sudo systemctl start mc-bot.service"
-    echo
-    echo "3. Check status:"
-    echo "   systemctl status mc-backend.service"
-    echo "   systemctl status mc-bot.service"
-  fi
-  
-  echo
-  echo -e "${RED}🔐 SECURITY REMINDERS:${NC}"
-  echo "  • Never commit .env files to GitHub"
-  echo "  • Never share your Discord token or API key"
-  echo "  • Rotate tokens immediately if exposed"
-  echo "  • Review SECURITY.md for best practices
   log_info "Testing backend API..."
   cd backend
   if npm test 2>&1 | tee /tmp/backend-test.log; then
@@ -503,7 +457,6 @@ run_tests() {
   cd ..
   echo ""
   
-  # Test bot
   log_info "Testing Discord bot..."
   cd bot
   if npm test 2>&1 | tee /tmp/bot-test.log; then
@@ -522,7 +475,7 @@ run_tests() {
     echo ""
   else
     echo -e "${YELLOW}╔════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${YELLOW}║  Some Tests Failed - Check logs above                     ║${NC}"
+    echo -e "${YELLOW}║  Some Tests Failed - Check logs above                      ║${NC}"
     echo -e "${YELLOW}╚════════════════════════════════════════════════════════════╝${NC}"
     echo ""
     log_warn "Test failures detected but continuing installation"
