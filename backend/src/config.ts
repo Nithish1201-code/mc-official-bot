@@ -1,5 +1,15 @@
 import { ConfigSchema } from "@mc-bot/shared";
-import "dotenv/config";
+import dotenv from "dotenv";
+import { fileURLToPath } from "url";
+import path from "path";
+
+if (process.env.NODE_ENV !== "test" && !process.env.VITEST) {
+  const envPath = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../../.env"
+  );
+  dotenv.config({ path: envPath });
+}
 
 const rawConfig = {
   apiKey: process.env.API_KEY || "dev-key-change-in-production",
