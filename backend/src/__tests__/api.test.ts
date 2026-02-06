@@ -1,5 +1,25 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
+
+vi.mock("../utils/craftyApi.js", () => ({
+  isCraftyConfigured: () => true,
+  getCraftyServerId: () => "test-server-id",
+  runCraftyAction: vi.fn().mockResolvedValue({ ok: true }),
+  getCraftyServerStats: vi.fn().mockResolvedValue({
+    online: true,
+    player_count: 2,
+    max_players: 20,
+    ping: 42,
+    tps: 19.9,
+    cpu_usage: 12.5,
+    memory_usage: 33.3,
+    uptime: 1234,
+  }),
+  getCraftyServerPublic: vi.fn().mockResolvedValue({
+    max_players: 20,
+  }),
+  logCraftyWarning: vi.fn(),
+}));
 
 describe("Backend API Integration Tests", () => {
   let server: FastifyInstance;

@@ -11,8 +11,14 @@ describe("Crafty API client", () => {
 
     if (liveUrl && liveToken) {
       const { listCraftyServers } = await import("../utils/craftyApi.js");
-      const servers = await listCraftyServers();
-      expect(Array.isArray(servers)).toBe(true);
+      try {
+        const servers = await listCraftyServers();
+        expect(Array.isArray(servers)).toBe(true);
+      } catch (error) {
+        throw new Error(
+          "Crafty API is configured but unreachable. Check CRAFTY_API_URL/CRAFTY_API_TOKEN and Crafty availability."
+        );
+      }
       return;
     }
 

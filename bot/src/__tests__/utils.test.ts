@@ -30,6 +30,7 @@ describe("Embed Utilities", () => {
         playerCount: 5,
         maxPlayers: 20,
         ping: 35,
+        tps: 19.9,
         cpuUsage: 45.2,
         ramUsage: 60.1,
         uptime: 3600,
