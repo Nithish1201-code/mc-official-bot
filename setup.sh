@@ -456,15 +456,28 @@ validate_env_files() {
   fi
 
   if ! grep -q "^DISCORD_BOT_TOKEN=\S" bot/.env; then
-    log_warn "bot/.env missing DISCORD_BOT_TOKEN"
+    log_error "bot/.env missing DISCORD_BOT_TOKEN"
+    has_error=1
   fi
 
   if ! grep -q "^DISCORD_BOT_TOKEN=[^[:space:]]\+$" bot/.env; then
-    log_warn "bot/.env has invalid DISCORD_BOT_TOKEN format"
+    log_error "bot/.env has invalid DISCORD_BOT_TOKEN format"
+    has_error=1
   fi
 
   if grep -q "^CRAFTY_API_TOKEN=\S" backend/.env && ! grep -q "^CRAFTY_API_TOKEN=[^[:space:]]\+$" backend/.env; then
-    log_warn "backend/.env has invalid CRAFTY_API_TOKEN format"
+    log_error "backend/.env has invalid CRAFTY_API_TOKEN format"
+    has_error=1
+  fi
+
+  if grep -q "^CRAFTY_API_URL=\S" backend/.env && ! grep -q "^CRAFTY_API_TOKEN=\S" backend/.env; then
+    log_error "backend/.env missing CRAFTY_API_TOKEN"
+    has_error=1
+  fi
+
+  if grep -q "^CRAFTY_API_TOKEN=\S" backend/.env && ! grep -q "^CRAFTY_SERVER_ID=\S" backend/.env; then
+    log_error "backend/.env missing CRAFTY_SERVER_ID"
+    has_error=1
   fi
 
   if [ $has_error -ne 0 ]; then
@@ -746,6 +759,12 @@ main() {
   crafty_allow_insecure=$(prompt_crafty_insecure)
   server_loader=$(prompt_server_loader)
   minecraft_version=$(prompt_minecraft_version)
+
+  if [ -z "$crafty_api_token" ]; then
+    crafty_api_url=""
+    crafty_allow_insecure="false"
+    crafty_server_id=""
+  fi
   echo
   
   # 3. Detect Minecraft servers
