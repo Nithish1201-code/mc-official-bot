@@ -385,34 +385,34 @@ create_env_files() {
   rm -f backend/.env bot/.env
 
   # Backend environment
-  cat > backend/.env << EOF
-NODE_ENV=production
-PORT=3000
-API_KEY=$api_key
-LOG_LEVEL=info
-MINECRAFT_PATH=$minecraft_path
-CRAFTY_PATH=$crafty_path
-CRAFTY_API_URL=$crafty_api_url
-CRAFTY_API_TOKEN=$crafty_api_token
-CRAFTY_SERVER_ID=$crafty_server_id
-CRAFTY_ALLOW_INSECURE=$crafty_allow_insecure
-SERVER_LOADER=$server_loader
-MINECRAFT_VERSION=$minecraft_version
-EOF
+  {
+    printf 'NODE_ENV=production\n'
+    printf 'PORT=3000\n'
+    printf 'API_KEY=%s\n' "$api_key"
+    printf 'LOG_LEVEL=info\n'
+    printf 'MINECRAFT_PATH=%s\n' "$minecraft_path"
+    printf 'CRAFTY_PATH=%s\n' "$crafty_path"
+    printf 'CRAFTY_API_URL=%s\n' "$crafty_api_url"
+    printf 'CRAFTY_API_TOKEN=%s\n' "$crafty_api_token"
+    printf 'CRAFTY_SERVER_ID=%s\n' "$crafty_server_id"
+    printf 'CRAFTY_ALLOW_INSECURE=%s\n' "$crafty_allow_insecure"
+    printf 'SERVER_LOADER=%s\n' "$server_loader"
+    printf 'MINECRAFT_VERSION=%s\n' "$minecraft_version"
+  } > backend/.env
   
   # Bot environment with Discord credentials
-  cat > bot/.env << EOF
-NODE_ENV=production
-DISCORD_BOT_TOKEN=$discord_token
-DISCORD_APPLICATION_ID=$discord_app_id
-BACKEND_URL=http://localhost:3000
-BACKEND_API_KEY=$api_key
-LOG_LEVEL=info
-BOT_ADMIN_ROLE_IDS=
-BOT_ALERT_CHANNEL_ID=
-BOT_STATUS_POLL_SECONDS=60
-BOT_AUTO_RESTART_ON_DOWN=false
-EOF
+  {
+    printf 'NODE_ENV=production\n'
+    printf 'DISCORD_BOT_TOKEN=%s\n' "$discord_token"
+    printf 'DISCORD_APPLICATION_ID=%s\n' "$discord_app_id"
+    printf 'BACKEND_URL=http://localhost:3000\n'
+    printf 'BACKEND_API_KEY=%s\n' "$api_key"
+    printf 'LOG_LEVEL=info\n'
+    printf 'BOT_ADMIN_ROLE_IDS=\n'
+    printf 'BOT_ALERT_CHANNEL_ID=\n'
+    printf 'BOT_STATUS_POLL_SECONDS=60\n'
+    printf 'BOT_AUTO_RESTART_ON_DOWN=false\n'
+  } > bot/.env
   
   # Set secure permissions
   chmod 600 backend/.env
