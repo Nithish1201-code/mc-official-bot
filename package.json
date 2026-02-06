@@ -1,0 +1,25 @@
+{
+  "name": "mc-official-bot",
+  "version": "1.0.0",
+  "description": "Production-grade Minecraft server management via Discord",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "backend",
+    "bot",
+    "shared",
+    "installer"
+  ],
+  "scripts": {
+    "setup": "bash ./setup.sh",
+    "dev": "npm run dev --workspace=backend & npm run dev --workspace=bot",
+    "dev:backend": "npm run dev --workspace=backend",
+    "dev:bot": "npm run dev --workspace=bot",
+    "build": "npm run build --workspace=backend && npm run build --workspace=bot",
+    "start": "npm start --workspace=backend & npm start --workspace=bot",
+    "test": "npm test --workspace=backend && npm test --workspace=bot"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

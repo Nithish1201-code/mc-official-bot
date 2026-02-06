@@ -1,0 +1,43 @@
+# Multi-stage build for backend
+
+FROM node:20-alpine AS builder
+
+WORKDIR /build
+
+# Copy all source files
+COPY . .
+
+# Install dependencies
+RUN npm ci --workspace=shared && \
+    npm ci --workspace=backend && \
+    npm run build --workspace=shared && \
+    npm run build --workspace=backend
+
+# Runtime stage
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Create non-root user
+RUN addgroup -g 1001 -S app && \
+    adduser -S app -u 1001
+
+# Copy only built backend
+COPY --from=builder /build/backend/dist ./backend/dist
+COPY --from=builder /build/backend/package.json ./backend/
+COPY --from=builder /build/shared/dist ./shared/dist
+COPY --from=builder /build/shared/package.json ./shared/
+
+WORKDIR /app/backend
+
+# Install production dependencies only
+RUN npm ci --omit=dev
+
+USER app
+
+EXPOSE 3000
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD node -e "require('http').get('http://localhost:3000/health', (r) => {if (r.statusCode !== 200) throw new Error()})"
+
+CMD ["node", "dist/index.js"]

@@ -1,0 +1,25 @@
+[Unit]
+Description=MC Bot Discord Service
+Documentation=https://github.com/Nithish1201-code/mc-official-bot
+After=network.target mc-backend.service
+
+[Service]
+Type=simple
+User=minecraft
+WorkingDirectory=/opt/mc-bot
+EnvironmentFile=/opt/mc-bot/bot/.env
+ExecStart=/usr/bin/node dist/index.js
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mc-bot
+
+# Security
+ProtectSystem=strict
+ProtectHome=true
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
