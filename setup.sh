@@ -652,11 +652,11 @@ install_bot() {
 # ============================================================================
 
 run_tests() {
-  log_info "Running automated tests..."
+  log_info "Running quick Crafty API check..."
   local test_failed=0
   echo ""
   echo -e "${BLUE}╔════════════════════════════════════════════════════════════╗${NC}"
-  echo -e "${BLUE}║  Test Suite Execution                                      ║${NC}"
+  echo -e "${BLUE}║  Quick Crafty Check                                        ║${NC}"
   echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
 
   if [ -f .env ]; then
@@ -664,41 +664,45 @@ run_tests() {
     . ./.env
     set +a
   fi
-  
-  log_info "Testing backend API..."
-  cd backend
-  if npm test 2>&1 | tee /tmp/backend-test.log; then
-    log_success "✓ Backend API tests passed"
+
+  if [ -z "$CRAFTY_API_URL" ] || [ -z "$CRAFTY_API_TOKEN" ]; then
+    log_warn "Crafty API not configured - skipping check"
   else
-    log_error "✗ Backend API tests failed"
-    test_failed=1
+    local curl_flags=("-s" "-w" "\n%{http_code}")
+    if [ "$CRAFTY_ALLOW_INSECURE" = "true" ]; then
+      curl_flags+=("-k")
+    fi
+
+    local response
+    response=$(curl "${curl_flags[@]}" \
+      -H "Authorization: Bearer $CRAFTY_API_TOKEN" \
+      "$CRAFTY_API_URL/api/v2/servers")
+
+    local http_code
+    http_code=$(echo "$response" | tail -n1)
+    local body
+    body=$(echo "$response" | sed '$d')
+
+    if [ "$http_code" = "200" ]; then
+      log_success "Crafty API reachable"
+    else
+      log_error "Crafty API check failed (HTTP $http_code)"
+      log_error "Response: $body"
+      test_failed=1
+    fi
   fi
-  cd ..
-  echo ""
-  
-  log_info "Testing Discord bot..."
-  cd bot
-  if npm test 2>&1 | tee /tmp/bot-test.log; then
-    log_success "✓ Bot tests passed"
-  else
-    log_error "✗ Bot tests failed"
-    test_failed=1
-  fi
-  cd ..
-  echo ""
-  
+
   if [ $test_failed -eq 0 ]; then
     echo -e "${GREEN}╔════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}║  All Tests Passed! ✓                                       ║${NC}"
+    echo -e "${GREEN}║  Quick Check Passed! ✓                                     ║${NC}"
     echo -e "${GREEN}╚════════════════════════════════════════════════════════════╝${NC}"
     echo ""
   else
     echo -e "${YELLOW}╔════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${YELLOW}║  Some Tests Failed - Check logs above                      ║${NC}"
+    echo -e "${YELLOW}║  Quick Check Failed - Continuing                           ║${NC}"
     echo -e "${YELLOW}╚════════════════════════════════════════════════════════════╝${NC}"
     echo ""
-    log_warn "Test failures detected but continuing installation"
-    log_warn "Review test logs: /tmp/*-test.log"
+    log_warn "Crafty check failed but continuing installation"
   fi
 }
 
