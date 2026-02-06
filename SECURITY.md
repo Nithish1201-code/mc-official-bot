@@ -48,8 +48,6 @@ bot/.env
 
 #### Token Format
 ```
-DISCORD_BOT_TOKEN=REDACTED_TOKEN_EXAMPLE
-```
 - Starts with bot user ID (base64)
 - Always starts with `MTI...` or similar
 - Contains dots separating segments
