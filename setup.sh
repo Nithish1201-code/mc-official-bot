@@ -150,19 +150,54 @@ detect_minecraft_servers() {
   log_info "Detecting Minecraft server directories..."
   
   local base_path="${1:-.}"
-  local found=0
+  local server_dirs=()
+  local server_names=()
   
-  while IFS= read -r -d '' server_dir; do
-    log_success "Found server: $server_dir"
-    found=$((found + 1))
-  done < <(find "$base_path" -name "server.properties" -type f 2>/dev/null | grep -o '^[^/]*' | sort -u | head -20)
+  while IFS= read -r -d '' properties_file; do
+    local server_dir
+    local server_name
+    server_dir=$(dirname "$properties_file")
+    server_name=$(grep -m1 '^motd=' "$properties_file" 2>/dev/null | cut -d= -f2-)
+    if [ -z "$server_name" ]; then
+      server_name=$(grep -m1 '^level-name=' "$properties_file" 2>/dev/null | cut -d= -f2-)
+    fi
+    if [ -z "$server_name" ]; then
+      server_name=$(basename "$server_dir")
+    fi
+
+    server_dirs+=("$server_dir")
+    server_names+=("$server_name")
+  done < <(find "$base_path" -name "server.properties" -type f -print0 2>/dev/null \
+    | head -20)
   
-  if [ $found -eq 0 ]; then
+  if [ ${#server_dirs[@]} -eq 0 ]; then
     log_warn "No Minecraft servers found"
     return 1
   fi
+
+  if [ ${#server_dirs[@]} -eq 1 ]; then
+    log_success "Found server: ${server_dirs[0]}"
+    echo "${server_dirs[0]}"
+    return 0
+  fi
+
+  log_info "Found ${#server_dirs[@]} server directories:"
+  for i in "${!server_dirs[@]}"; do
+    printf "  [%d] %s (%s)\n" "$((i + 1))" "${server_names[$i]}" "${server_dirs[$i]}" >&2
+  done
+
+  local selection=""
+  while true; do
+    read -p "Select the server to manage (1-${#server_dirs[@]}): " selection
+    if [[ "$selection" =~ ^[0-9]+$ ]] && [ "$selection" -ge 1 ] && [ "$selection" -le ${#server_dirs[@]} ]; then
+      local index=$((selection - 1))
+      log_success "Selected server: ${server_names[$index]}"
+      echo "${server_dirs[$index]}"
+      return 0
+    fi
+    log_warn "Invalid selection. Enter a number between 1 and ${#server_dirs[@]}"
+  done
   
-  log_success "Found $found server directories"
   return 0
 }
 
@@ -545,7 +580,10 @@ main() {
   log_info "Step 3: Minecraft Detection"
   minecraft_path="${crafty_path:-$HOME/minecraft}"
   if [ -d "$minecraft_path" ]; then
-    detect_minecraft_servers "$minecraft_path" || true
+    selected_server=$(detect_minecraft_servers "$minecraft_path") || true
+    if [ -n "$selected_server" ]; then
+      minecraft_path="$selected_server"
+    fi
   fi
   echo
   
