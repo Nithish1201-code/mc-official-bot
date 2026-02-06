@@ -48,7 +48,7 @@ bot/.env
 
 #### Token Format
 ```
-DISCORD_BOT_TOKEN=MTIzNDU2Nzg5MDEyMzQ1Njc4OQ.GAbCdE.fGhIjKlMnOpQrStUvWxYz1234567890
+DISCORD_BOT_TOKEN=REDACTED_TOKEN_EXAMPLE
 ```
 - Starts with bot user ID (base64)
 - Always starts with `MTI...` or similar
