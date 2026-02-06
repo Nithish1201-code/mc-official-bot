@@ -470,6 +470,18 @@ EOF
   log_success "Service $service_name created"
 }
 
+enable_and_start_services() {
+  if ! check_command systemctl; then
+    log_warn "systemctl not available - skipping service enable/start"
+    return 0
+  fi
+
+  log_info "Enabling and starting systemd services..."
+  systemctl enable mc-backend.service mc-bot.service
+  systemctl start mc-backend.service mc-bot.service
+  log_success "Services enabled and started"
+}
+
 # ============================================================================
 # INSTALLATION
 # ============================================================================
@@ -630,6 +642,9 @@ main() {
     "MC Bot Discord Service" \
     "$(pwd)/bot" \
     "node dist/index.js"
+  echo
+
+  enable_and_start_services
   echo
   
   # Summary

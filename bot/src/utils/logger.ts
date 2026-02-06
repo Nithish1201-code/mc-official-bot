@@ -21,9 +21,16 @@ export class StructuredLogger {
     logger.warn({ module: this.module, ...data }, msg);
   }
 
-  error(msg: string, error?: Error, data?: Record<string, unknown>): void {
+  error(msg: string, error?: unknown, data?: Record<string, unknown>): void {
+    const err = error instanceof Error ? error : undefined;
     logger.error(
-      { module: this.module, error, ...data },
+      {
+        module: this.module,
+        err,
+        errorMessage: err?.message || (typeof error === "string" ? error : undefined),
+        errorStack: err?.stack,
+        ...data,
+      },
       msg
     );
   }
