@@ -11,7 +11,8 @@ const rawConfig = {
     process.env.HOME ||
     "/" + "opt/minecraft",
   craftyPath: process.env.CRAFTY_PATH,
-  environment: (process.env.NODE_ENV as "development" | "production") ||
+  environment:
+    (process.env.NODE_ENV as "development" | "production" | "test") ||
     "production",
   logging: {
     level: (process.env.LOG_LEVEL || "info") as

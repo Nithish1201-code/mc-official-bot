@@ -68,7 +68,7 @@ export const ConfigSchema = z.object({
   botPublicKey: z.string().optional(),
   minecraftPath: z.string(),
   craftyPath: z.string().optional(),
-  environment: z.enum(["development", "production"]).default("production"),
+  environment: z.enum(["development", "production", "test"]).default("production"),
   logging: z.object({
     level: z.enum(["error", "warn", "info", "debug"]).default("info"),
     format: z.enum(["json", "text"]).default("json"),
