@@ -213,6 +213,12 @@ validate_discord_token() {
     return 1
   else
     log_warn "Could not validate token (HTTP $http_code)"
+    return 0
+  fi
+}
+
+create_env_files() {
+  local api_key="$1"
   local discord_token="$2"
   local discord_app_id="$3"
   
@@ -247,7 +253,9 @@ EOF
   else
     log_success "Discord token configured"
   fi
-  
+}
+
+prompt_discord_token() {
   local token=""
   local valid=false
   local attempts=0
