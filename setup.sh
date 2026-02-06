@@ -14,19 +14,19 @@ NC='\033[0m' # No Color
 
 # Logging functions
 log_info() {
-  echo -e "${BLUE}[INFO]${NC} $1"
+  echo -e "${BLUE}[INFO]${NC} $1" >&2
 }
 
 log_success() {
-  echo -e "${GREEN}[SUCCESS]${NC} $1"
+  echo -e "${GREEN}[SUCCESS]${NC} $1" >&2
 }
 
 log_warn() {
-  echo -e "${YELLOW}[WARN]${NC} $1"
+  echo -e "${YELLOW}[WARN]${NC} $1" >&2
 }
 
 log_error() {
-  echo -e "${RED}[ERROR]${NC} $1"
+  echo -e "${RED}[ERROR]${NC} $1" >&2
 }
 
 # ============================================================================
@@ -224,6 +224,9 @@ create_env_files() {
   
   log_info "Creating environment files..."
   
+  # Overwrite env files to avoid stale or corrupted content
+  rm -f backend/.env bot/.env
+
   # Backend environment
   cat > backend/.env << EOF
 NODE_ENV=production
@@ -253,6 +256,41 @@ EOF
   else
     log_success "Discord token configured"
   fi
+}
+
+validate_env_files() {
+  local has_error=0
+
+  if [ ! -f backend/.env ] || [ ! -f bot/.env ]; then
+    log_error "Missing environment files (backend/.env or bot/.env)"
+    return 1
+  fi
+
+  if grep -qE "\[(INFO|SUCCESS|WARN|ERROR)\]" backend/.env bot/.env; then
+    log_error "Environment files contain log output; please re-run setup"
+    return 1
+  fi
+
+  if ! grep -q "^API_KEY=\S" backend/.env; then
+    log_error "backend/.env missing API_KEY"
+    has_error=1
+  fi
+
+  if ! grep -q "^BACKEND_API_KEY=\S" bot/.env; then
+    log_error "bot/.env missing BACKEND_API_KEY"
+    has_error=1
+  fi
+
+  if ! grep -q "^DISCORD_BOT_TOKEN=\S" bot/.env; then
+    log_warn "bot/.env missing DISCORD_BOT_TOKEN"
+  fi
+
+  if [ $has_error -ne 0 ]; then
+    return 1
+  fi
+
+  log_success "Environment files validated"
+  return 0
 }
 
 prompt_discord_token() {
@@ -528,6 +566,7 @@ main() {
   log_info "Step 6: Configuration"
   create_config "$api_key" "$minecraft_path" "$crafty_path"
   create_env_files "$api_key" "$discord_token" "$discord_app_id"
+  validate_env_files
   echo
   
   # 7. Install dependencies
