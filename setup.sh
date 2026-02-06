@@ -214,10 +214,15 @@ prompt_crafty_api_url() {
 
 prompt_crafty_api_token() {
   local token=""
-  read -sp "Enter Crafty API token (press Enter to skip): " token
-  echo
-  token=$(echo "$token" | tr -d '[:space:]')
-  echo "$token"
+  while true; do
+    read -p "Enter Crafty API token: " token
+    token=$(echo "$token" | tr -d '[:space:]')
+    if [ -n "$token" ]; then
+      echo "$token"
+      return 0
+    fi
+    log_error "Crafty API token cannot be empty"
+  done
 }
 
 prompt_crafty_insecure() {
@@ -495,8 +500,7 @@ prompt_discord_token() {
   local max_attempts=3
   
   while [ "$valid" = false ] && [ $attempts -lt $max_attempts ]; do
-    read -sp "Enter Discord Bot Token: " token
-    echo
+    read -p "Enter Discord Bot Token: " token
     
     token=$(echo "$token" | tr -d '[:space:]')
 
