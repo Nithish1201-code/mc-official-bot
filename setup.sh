@@ -263,10 +263,17 @@ list_crafty_servers() {
     curl_flags+=("-k")
   fi
 
-  curl "${curl_flags[@]}" \
+  local response
+  response=$(curl "${curl_flags[@]}" \
     -H "Authorization: Bearer $token" \
-    "$api_url/api/v2/servers" \
-    | jq -r '.[] | "\(.server_id)\t\(.server_name)\t\(.path)"'
+    "$api_url/api/v2/servers")
+
+  if ! echo "$response" | jq -e 'type == "array"' > /dev/null 2>&1; then
+    log_warn "Crafty API server list returned unexpected response"
+    return 1
+  fi
+
+  echo "$response" | jq -r '.[] | "\(.server_id)\t\(.server_name)\t\(.path)"'
 }
 
 select_crafty_server() {
@@ -540,6 +547,7 @@ prompt_discord_token() {
 prompt_discord_app_id() {
   echo
   read -p "Enter Discord Application ID (optional, press Enter to skip): " app_id
+  app_id=$(echo "$app_id" | tr -d '[:space:]')
   echo "$app_id"
 }
 
@@ -702,6 +710,12 @@ run_tests() {
   echo -e "${BLUE}╔════════════════════════════════════════════════════════════╗${NC}"
   echo -e "${BLUE}║  Test Suite Execution                                      ║${NC}"
   echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
+
+  if [ -f backend/.env ]; then
+    set -a
+    . backend/.env
+    set +a
+  fi
   
   log_info "Testing backend API..."
   cd backend

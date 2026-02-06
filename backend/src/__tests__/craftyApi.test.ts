@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 describe("Crafty API client", () => {

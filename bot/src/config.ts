@@ -1,6 +1,8 @@
 import dotenv from "dotenv";
 
-dotenv.config();
+if (process.env.NODE_ENV !== "test" && !process.env.VITEST) {
+  dotenv.config();
+}
 
 export const config = {
   botToken: process.env.DISCORD_BOT_TOKEN,

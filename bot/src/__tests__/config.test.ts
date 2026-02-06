@@ -6,6 +6,7 @@ describe("Bot config validation", () => {
   beforeEach(() => {
     vi.resetModules();
     process.env = { ...ORIGINAL_ENV };
+    process.env.DOTENV_CONFIG_PATH = "/dev/null";
   });
 
   afterEach(() => {
