@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createServer } from "../server.js";
 import type { FastifyInstance } from "fastify";
 
 describe("Backend API Integration Tests", () => {
@@ -8,6 +7,9 @@ describe("Backend API Integration Tests", () => {
   beforeAll(async () => {
     process.env.API_KEY = "test-api-key-12345678901234567890123456789012";
     process.env.MINECRAFT_PATH = "/tmp/test";
+    process.env.NODE_ENV = "test";
+
+    const { createServer } = await import("../server.js");
     server = await createServer();
   });
 
