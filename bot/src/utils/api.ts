@@ -51,6 +51,40 @@ export class BackendAPI {
     }
   }
 
+  async startServer() {
+    try {
+      const response = await axios.post(
+        `${this.baseURL}/api/server/start`,
+        {},
+        { headers: this.getHeaders() }
+      );
+      return response.data;
+    } catch (error) {
+      logger.error(
+        "Failed to start server",
+        error instanceof Error ? error : new Error(String(error))
+      );
+      throw error;
+    }
+  }
+
+  async stopServer() {
+    try {
+      const response = await axios.post(
+        `${this.baseURL}/api/server/stop`,
+        {},
+        { headers: this.getHeaders() }
+      );
+      return response.data;
+    } catch (error) {
+      logger.error(
+        "Failed to stop server",
+        error instanceof Error ? error : new Error(String(error))
+      );
+      throw error;
+    }
+  }
+
   async searchModrinth(query: string, limit?: number) {
     try {
       const response = await axios.get(`${this.baseURL}/api/modrinth/search`, {
@@ -82,7 +116,7 @@ export class BackendAPI {
     }
   }
 
-  async installPlugin(projectId: string, versionId: string) {
+  async installPlugin(projectId: string, versionId?: string) {
     try {
       const response = await axios.post(
         `${this.baseURL}/api/plugins/install`,
@@ -97,5 +131,48 @@ export class BackendAPI {
       );
       throw error;
     }
+  }
+
+  async updatePlugin(projectId: string, versionId?: string) {
+    try {
+      const response = await axios.post(
+        `${this.baseURL}/api/plugins/update`,
+        { projectId, versionId },
+        { headers: this.getHeaders() }
+      );
+      return response.data;
+    } catch (error) {
+      logger.error(
+        "Failed to update plugin",
+        error instanceof Error ? error : new Error(String(error))
+      );
+      throw error;
+    }
+  }
+
+  async uploadPlugin(attachmentUrl: string, filename: string) {
+    const response = await fetch(attachmentUrl);
+    if (!response.ok) {
+      throw new Error("Failed to download attachment");
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    const form = new FormData();
+    form.append("file", new Blob([arrayBuffer]), filename);
+
+    const uploadResponse = await fetch(`${this.baseURL}/api/plugins/upload`, {
+      method: "POST",
+      headers: {
+        "X-API-Key": this.apiKey,
+      },
+      body: form,
+    });
+
+    if (!uploadResponse.ok) {
+      const text = await uploadResponse.text();
+      throw new Error(text || "Upload failed");
+    }
+
+    return uploadResponse.json();
   }
 }

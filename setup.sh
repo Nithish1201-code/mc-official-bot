@@ -115,6 +115,8 @@ detect_crafty() {
     "/opt/crafty"
     "/home/crafty"
     "/root/crafty"
+    "/var/opt/minecraft/crafty/crafty-4"
+    "/var/opt/minecraft/craft/crafty-4"
     "$HOME/crafty"
   )
   
@@ -201,6 +203,114 @@ detect_minecraft_servers() {
   return 0
 }
 
+prompt_crafty_api_url() {
+  local default_url="https://localhost:8443"
+  read -p "Enter Crafty API URL (default: $default_url): " crafty_api_url
+  if [ -z "$crafty_api_url" ]; then
+    crafty_api_url="$default_url"
+  fi
+  echo "$crafty_api_url"
+}
+
+prompt_crafty_api_token() {
+  local token=""
+  read -sp "Enter Crafty API token (press Enter to skip): " token
+  echo
+  echo "$token"
+}
+
+prompt_crafty_insecure() {
+  local response=""
+  read -p "Allow self-signed Crafty TLS? (Y/n): " response
+  if [ -z "$response" ] || [[ "$response" =~ ^[Yy]$ ]]; then
+    echo "true"
+  else
+    echo "false"
+  fi
+}
+
+prompt_server_loader() {
+  local default_loader="paper"
+  read -p "Server loader (paper/spigot/bukkit/fabric/vanilla) [${default_loader}]: " loader
+  if [ -z "$loader" ]; then
+    loader="$default_loader"
+  fi
+  echo "$loader"
+}
+
+prompt_minecraft_version() {
+  read -p "Minecraft version (optional, e.g. 1.21.1): " mc_version
+  echo "$mc_version"
+}
+
+list_crafty_servers() {
+  local api_url="$1"
+  local token="$2"
+  local allow_insecure="$3"
+
+  if [ -z "$api_url" ] || [ -z "$token" ]; then
+    return 1
+  fi
+
+  local curl_flags=("-s")
+  if [ "$allow_insecure" = "true" ]; then
+    curl_flags+=("-k")
+  fi
+
+  curl "${curl_flags[@]}" \
+    -H "Authorization: Bearer $token" \
+    "$api_url/api/v2/servers" \
+    | jq -r '.[] | "\(.server_id)\t\(.server_name)\t\(.path)"'
+}
+
+select_crafty_server() {
+  local api_url="$1"
+  local token="$2"
+  local allow_insecure="$3"
+
+  local entries
+  entries=$(list_crafty_servers "$api_url" "$token" "$allow_insecure")
+  if [ -z "$entries" ]; then
+    return 1
+  fi
+
+  local server_ids=()
+  local server_names=()
+  local server_paths=()
+
+  while IFS=$'\t' read -r server_id server_name server_path; do
+    [ -z "$server_id" ] && continue
+    server_ids+=("$server_id")
+    server_names+=("$server_name")
+    server_paths+=("$server_path")
+  done <<< "$entries"
+
+  if [ ${#server_ids[@]} -eq 0 ]; then
+    return 1
+  fi
+
+  if [ ${#server_ids[@]} -eq 1 ]; then
+    echo "${server_ids[0]}|${server_paths[0]}"
+    return 0
+  fi
+
+  log_info "Crafty API returned ${#server_ids[@]} servers:"
+  for i in "${!server_ids[@]}"; do
+    printf "  [%d] %s (%s)\n" "$((i + 1))" "${server_names[$i]}" "${server_paths[$i]}" >&2
+  done
+
+  local selection=""
+  while true; do
+    read -p "Select the server to manage (1-${#server_ids[@]}): " selection
+    if [[ "$selection" =~ ^[0-9]+$ ]] && [ "$selection" -ge 1 ] && [ "$selection" -le ${#server_ids[@]} ]; then
+      local index=$((selection - 1))
+      echo "${server_ids[$index]}|${server_paths[$index]}"
+      return 0
+    fi
+    log_warn "Invalid selection. Enter a number between 1 and ${#server_ids[@]}"
+  done
+}
+
 # ============================================================================
 # API KEY GENERATION
 # ============================================================================
@@ -256,6 +366,14 @@ create_env_files() {
   local api_key="$1"
   local discord_token="$2"
   local discord_app_id="$3"
+  local minecraft_path="$4"
+  local crafty_path="$5"
+  local crafty_api_url="$6"
+  local crafty_api_token="$7"
+  local crafty_server_id="$8"
+  local crafty_allow_insecure="$9"
+  local server_loader="${10}"
+  local minecraft_version="${11}"
   
   log_info "Creating environment files..."
   
@@ -268,6 +386,14 @@ NODE_ENV=production
 PORT=3000
 API_KEY=$api_key
 LOG_LEVEL=info
+MINECRAFT_PATH=$minecraft_path
+CRAFTY_PATH=$crafty_path
+CRAFTY_API_URL=$crafty_api_url
+CRAFTY_API_TOKEN=$crafty_api_token
+CRAFTY_SERVER_ID=$crafty_server_id
+CRAFTY_ALLOW_INSECURE=$crafty_allow_insecure
+SERVER_LOADER=$server_loader
+MINECRAFT_VERSION=$minecraft_version
 EOF
   
   # Bot environment with Discord credentials
@@ -278,6 +404,10 @@ DISCORD_APPLICATION_ID=$discord_app_id
 BACKEND_URL=http://localhost:3000
 BACKEND_API_KEY=$api_key
 LOG_LEVEL=info
+BOT_ADMIN_ROLE_IDS=
+BOT_ALERT_CHANNEL_ID=
+BOT_STATUS_POLL_SECONDS=60
+BOT_AUTO_RESTART_ON_DOWN=false
 EOF
   
   # Set secure permissions
@@ -316,8 +446,17 @@ validate_env_files() {
     has_error=1
   fi
 
+  if grep -q "^CRAFTY_API_TOKEN=\S" backend/.env && ! grep -q "^CRAFTY_API_URL=\S" backend/.env; then
+    log_error "backend/.env missing CRAFTY_API_URL"
+    has_error=1
+  fi
+
   if ! grep -q "^DISCORD_BOT_TOKEN=\S" bot/.env; then
     log_warn "bot/.env missing DISCORD_BOT_TOKEN"
+  fi
+
+  if ! grep -q "^DISCORD_BOT_TOKEN=[^[:space:]]\+$" bot/.env; then
+    log_warn "bot/.env has invalid DISCORD_BOT_TOKEN format"
   fi
 
   if [ $has_error -ne 0 ]; then
@@ -338,8 +477,16 @@ prompt_discord_token() {
     read -sp "Enter Discord Bot Token: " token
     echo
     
+    token=$(echo "$token" | tr -d '[:space:]')
+
     if [ -z "$token" ]; then
       log_error "Token cannot be empty"
+      attempts=$((attempts + 1))
+      continue
+    fi
+
+    if echo "$token" | grep -q '[[:space:]]'; then
+      log_error "Token cannot contain whitespace"
       attempts=$((attempts + 1))
       continue
     fi
@@ -586,11 +733,25 @@ main() {
   # 2. Detect Crafty
   log_info "Step 2: Crafty Detection"
   crafty_path=$(detect_crafty) || crafty_path=""
+  crafty_api_url=$(prompt_crafty_api_url)
+  crafty_api_token=$(prompt_crafty_api_token)
+  crafty_allow_insecure=$(prompt_crafty_insecure)
+  server_loader=$(prompt_server_loader)
+  minecraft_version=$(prompt_minecraft_version)
   echo
   
   # 3. Detect Minecraft servers
   log_info "Step 3: Minecraft Detection"
   minecraft_path="${crafty_path:-$HOME/minecraft}"
+  crafty_server_id=""
+  if [ -n "$crafty_api_token" ] && [ -n "$crafty_api_url" ]; then
+    selected_server=$(select_crafty_server "$crafty_api_url" "$crafty_api_token" "$crafty_allow_insecure") || true
+    if [ -n "$selected_server" ]; then
+      crafty_server_id=$(echo "$selected_server" | cut -d'|' -f1)
+      minecraft_path=$(echo "$selected_server" | cut -d'|' -f2)
+    fi
+  fi
+
   if [ -d "$minecraft_path" ]; then
     selected_server=$(detect_minecraft_servers "$minecraft_path") || true
     if [ -n "$selected_server" ]; then
@@ -615,7 +776,18 @@ main() {
   # 6. Create configuration
   log_info "Step 6: Configuration"
   create_config "$api_key" "$minecraft_path" "$crafty_path"
-  create_env_files "$api_key" "$discord_token" "$discord_app_id"
+  create_env_files \
+    "$api_key" \
+    "$discord_token" \
+    "$discord_app_id" \
+    "$minecraft_path" \
+    "$crafty_path" \
+    "$crafty_api_url" \
+    "$crafty_api_token" \
+    "$crafty_server_id" \
+    "$crafty_allow_insecure" \
+    "$server_loader" \
+    "$minecraft_version"
   validate_env_files
   echo
   
@@ -658,12 +830,12 @@ main() {
     echo
     echo "Next steps:"
     echo "1. Start services:"
-    echo "   sudo systemctl start mc-backend.service"
-    echo "   sudo systemctl start mc-bot.service"
+    echo "   systemctl start mc-backend.service"
+    echo "   systemctl start mc-bot.service"
     echo
     echo "2. Enable auto-start on boot:"
-    echo "   sudo systemctl enable mc-backend.service"
-    echo "   sudo systemctl enable mc-bot.service"
+    echo "   systemctl enable mc-backend.service"
+    echo "   systemctl enable mc-bot.service"
     echo
     echo "3. Check status:"
     echo "   systemctl status mc-backend.service"
@@ -680,8 +852,8 @@ main() {
     echo "   DISCORD_BOT_TOKEN=your_token_here"
     echo
     echo "2. Start services:"
-    echo "   sudo systemctl start mc-backend.service"
-    echo "   sudo systemctl start mc-bot.service"
+    echo "   systemctl start mc-backend.service"
+    echo "   systemctl start mc-bot.service"
     echo
     echo "3. Check status:"
     echo "   systemctl status mc-backend.service"

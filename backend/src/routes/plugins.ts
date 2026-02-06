@@ -1,27 +1,101 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { StructuredLogger } from "../utils/logger.js";
+import { config } from "../config.js";
+import {
+  downloadModrinthFile,
+  getProjectVersions,
+  validateJarFile,
+} from "../utils/modrinth.js";
 import fs from "fs/promises";
 import path from "path";
+import { pipeline } from "stream/promises";
 
 const logger = new StructuredLogger("plugins");
 
 export default async function pluginRoutes(fastify: FastifyInstance) {
+  const pluginsDir = path.join(config.minecraftPath, "plugins");
+
+  const installFromModrinth = async (projectId: string, versionId?: string) => {
+    const versions = await getProjectVersions(projectId);
+    const serverLoader = config.serverLoader || "paper";
+    const serverVersion = config.minecraftVersion;
+
+    const selectedVersion =
+      versions.find((version) => version.id === versionId) ||
+      versions.find((version) => {
+        const loaders = version.loaders || [];
+        const gameVersions = version.game_versions || [];
+        const loaderMatch = loaders.includes(serverLoader);
+        const versionMatch = serverVersion ? gameVersions.includes(serverVersion) : true;
+        return loaderMatch && versionMatch;
+      }) ||
+      versions[0];
+
+    if (!selectedVersion || !selectedVersion.files?.length) {
+      throw new Error("NO_COMPATIBLE_VERSION");
+    }
+
+    const file =
+      selectedVersion.files.find((f: any) => f.filename?.endsWith(".jar")) ||
+      selectedVersion.files[0];
+    const filename = file.filename || `${projectId}.jar`;
+    const tempPath = path.join("/tmp", filename);
+
+    await fs.mkdir(pluginsDir, { recursive: true });
+    await downloadModrinthFile(file.url, tempPath);
+
+    const valid = await validateJarFile(tempPath);
+    if (!valid) {
+      await fs.unlink(tempPath).catch(() => {});
+      throw new Error("INVALID_JAR");
+    }
+
+    const targetPath = path.join(pluginsDir, filename);
+    try {
+      await fs.access(targetPath);
+      const backupDir = path.join(pluginsDir, ".backup", new Date().toISOString().replace(/[:.]/g, "-"));
+      await fs.mkdir(backupDir, { recursive: true });
+      await fs.rename(targetPath, path.join(backupDir, filename));
+    } catch (error) {
+      // No existing file to backup
+    }
+
+    await fs.rename(tempPath, targetPath);
+
+    return {
+      versionId: selectedVersion.id,
+      filename,
+    };
+  };
+
   fastify.get(
     "/plugins",
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         logger.info("Listing plugins");
 
-        // Placeholder - would scan plugins directory
-        const plugins = [
-          {
-            name: "Example Plugin",
-            version: "1.0.0",
-            path: "/path/to/plugin.jar",
-            size: 5242880,
-            enabled: true,
-          },
-        ];
+        let plugins: Array<{ name: string; version: string; path: string; size: number; enabled: boolean }> = [];
+
+        try {
+          const entries = await fs.readdir(pluginsDir, { withFileTypes: true });
+          const jars = entries.filter((entry) => entry.isFile() && entry.name.endsWith(".jar"));
+
+          plugins = await Promise.all(
+            jars.map(async (entry) => {
+              const fullPath = path.join(pluginsDir, entry.name);
+              const stats = await fs.stat(fullPath);
+              return {
+                name: entry.name.replace(/\.jar$/i, ""),
+                version: "unknown",
+                path: fullPath,
+                size: stats.size,
+                enabled: true,
+              };
+            })
+          );
+        } catch (error) {
+          logger.warn("Could not read plugins directory", { pluginsDir });
+        }
 
         reply.send({
           plugins,
@@ -52,11 +126,11 @@ export default async function pluginRoutes(fastify: FastifyInstance) {
           versionId?: string;
         }) || {};
 
-        if (!projectId || !versionId) {
+        if (!projectId) {
           reply.code(400).send({
             error: {
               code: "MISSING_FIELDS",
-              message: "projectId and versionId are required",
+              message: "projectId is required",
               statusCode: 400,
             },
           });
@@ -65,14 +139,40 @@ export default async function pluginRoutes(fastify: FastifyInstance) {
 
         logger.info("Installing plugin", { projectId, versionId });
 
-        // Placeholder - would download and install
+        const { versionId: resolvedVersion, filename } = await installFromModrinth(
+          projectId,
+          versionId
+        );
         reply.send({
           success: true,
-          message: "Plugin installation initiated",
+          message: "Plugin installed",
           projectId,
-          versionId,
+          versionId: resolvedVersion,
+          file: filename,
         });
       } catch (error) {
+        if (error instanceof Error && error.message === "NO_COMPATIBLE_VERSION") {
+          reply.code(400).send({
+            error: {
+              code: "NO_COMPATIBLE_VERSION",
+              message: "No compatible plugin version found",
+              statusCode: 400,
+            },
+          });
+          return;
+        }
+
+        if (error instanceof Error && error.message === "INVALID_JAR") {
+          reply.code(400).send({
+            error: {
+              code: "INVALID_JAR",
+              message: "Downloaded file is not a valid jar",
+              statusCode: 400,
+            },
+          });
+          return;
+        }
+
         logger.error(
           "Plugin install failed",
           error instanceof Error ? error : new Error(String(error))
@@ -108,13 +208,47 @@ export default async function pluginRoutes(fastify: FastifyInstance) {
         const filename = data.filename;
         logger.info("Uploading plugin", { filename });
 
-        // Placeholder - would validate and save file
+        if (!filename.endsWith(".jar")) {
+          reply.code(400).send({
+            error: {
+              code: "INVALID_FILE",
+              message: "Only .jar files are allowed",
+              statusCode: 400,
+            },
+          });
+          return;
+        }
+
+        await fs.mkdir(pluginsDir, { recursive: true });
+        const targetPath = path.join(pluginsDir, filename);
+        const fileHandle = await fs.open(targetPath, "w");
+        const writeStream = fileHandle.createWriteStream();
+
+        try {
+          await pipeline(data.file, writeStream);
+        } finally {
+          await fileHandle.close();
+        }
+
+        const valid = await validateJarFile(targetPath);
+        if (!valid) {
+          await fs.unlink(targetPath);
+          reply.code(400).send({
+            error: {
+              code: "INVALID_JAR",
+              message: "Uploaded file is not a valid jar",
+              statusCode: 400,
+            },
+          });
+          return;
+        }
+
         reply.send({
           success: true,
           file: {
             name: filename,
-            size: 0,
-            path: `/plugins/${filename}`,
+            size: data.file.bytesRead ?? 0,
+            path: targetPath,
           },
           message: "Plugin uploaded successfully",
         });
@@ -127,6 +261,78 @@ export default async function pluginRoutes(fastify: FastifyInstance) {
           error: {
             code: "UPLOAD_FAILED",
             message: "Could not upload plugin",
+            statusCode: 500,
+          },
+        });
+      }
+    }
+  );
+
+  fastify.post(
+    "/plugins/update",
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const { projectId, versionId } = (request.body as {
+          projectId?: string;
+          versionId?: string;
+        }) || {};
+
+        if (!projectId) {
+          reply.code(400).send({
+            error: {
+              code: "MISSING_FIELDS",
+              message: "projectId is required",
+              statusCode: 400,
+            },
+          });
+          return;
+        }
+
+        logger.info("Updating plugin", { projectId, versionId });
+
+        const { versionId: resolvedVersion, filename } = await installFromModrinth(
+          projectId,
+          versionId
+        );
+
+        reply.send({
+          success: true,
+          message: "Plugin updated",
+          projectId,
+          versionId: resolvedVersion,
+          file: filename,
+        });
+      } catch (error) {
+        if (error instanceof Error && error.message === "NO_COMPATIBLE_VERSION") {
+          reply.code(400).send({
+            error: {
+              code: "NO_COMPATIBLE_VERSION",
+              message: "No compatible plugin version found",
+              statusCode: 400,
+            },
+          });
+          return;
+        }
+
+        if (error instanceof Error && error.message === "INVALID_JAR") {
+          reply.code(400).send({
+            error: {
+              code: "INVALID_JAR",
+              message: "Downloaded file is not a valid jar",
+              statusCode: 400,
+            },
+          });
+          return;
+        }
+
+        logger.error(
+          "Plugin update failed",
+          error instanceof Error ? error : new Error(String(error))
+        );
+        reply.code(500).send({
+          error: {
+            code: "UPDATE_FAILED",
+            message: "Could not update plugin",
             statusCode: 500,
           },
         });

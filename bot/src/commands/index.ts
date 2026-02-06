@@ -14,8 +14,48 @@ import {
 import { BackendAPI } from "../utils/api.js";
 import { createStatusEmbed, createErrorEmbed, createSuccessEmbed } from "../utils/embeds.js";
 import { StructuredLogger } from "../utils/logger.js";
+import { config } from "../config.js";
 
 const logger = new StructuredLogger("commands");
+const statusPanelIntervals = new Map<string, NodeJS.Timeout>();
+
+function hasAdminRoleFromMember(member: any): boolean {
+  if (config.adminRoleIds.length === 0) {
+    return true;
+  }
+
+  const roles = member?.roles?.cache;
+  if (!roles) {
+    return false;
+  }
+
+  return roles.some((role: any) => config.adminRoleIds.includes(role.id));
+}
+
+function hasAdminRole(interaction: ChatInputCommandInteraction): boolean {
+  if (config.adminRoleIds.length === 0) {
+    return true;
+  }
+
+  if (!interaction.inGuild()) {
+    return false;
+  }
+
+  return hasAdminRoleFromMember(interaction.member as any);
+}
+
+async function ensureAdmin(interaction: ChatInputCommandInteraction): Promise<boolean> {
+  if (hasAdminRole(interaction)) {
+    return true;
+  }
+
+  const embed = createErrorEmbed(
+    "Permission Denied",
+    "You do not have permission to run this command"
+  );
+  await interaction.reply({ embeds: [embed], ephemeral: true });
+  return false;
+}
 
 export interface Command {
   data:
@@ -31,16 +71,54 @@ export interface Command {
 export const statusCommand: Command = {
   data: new SlashCommandBuilder()
     .setName("status")
-    .setDescription("Check the Minecraft server status"),
+    .setDescription("Check the Minecraft server status")
+    .addBooleanOption((option) =>
+      option
+        .setName("panel")
+        .setDescription("Create an auto-updating status panel")
+        .setRequired(false)
+    ),
 
   async execute(interaction: ChatInputCommandInteraction, api: BackendAPI) {
     try {
       await interaction.deferReply();
 
-      const status = await api.getStatus();
-      const embed = createStatusEmbed(status);
+      const makeStatusEmbed = async () => {
+        const status = await api.getStatus();
+        return createStatusEmbed(status);
+      };
 
-      await interaction.editReply({ embeds: [embed] });
+      const isPanel = interaction.options.getBoolean("panel") || false;
+      const embed = await makeStatusEmbed();
+      const replyMessage = await interaction.editReply({ embeds: [embed] });
+
+      if (isPanel) {
+        const existing = statusPanelIntervals.get(replyMessage.id);
+        if (existing) {
+          clearInterval(existing);
+        }
+
+        const interval = setInterval(async () => {
+          try {
+            const updatedEmbed = await makeStatusEmbed();
+            await replyMessage.edit({ embeds: [updatedEmbed] });
+          } catch (error) {
+            logger.warn("Status panel update failed", {
+              message: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }, 60000);
+
+        statusPanelIntervals.set(replyMessage.id, interval);
+
+        setTimeout(() => {
+          const timer = statusPanelIntervals.get(replyMessage.id);
+          if (timer) {
+            clearInterval(timer);
+            statusPanelIntervals.delete(replyMessage.id);
+          }
+        }, 60 * 60 * 1000);
+      }
     } catch (error) {
       logger.error(
         "Status command failed",
@@ -70,6 +148,10 @@ export const restartCommand: Command = {
 
   async execute(interaction: ChatInputCommandInteraction, api: BackendAPI) {
     try {
+      if (!(await ensureAdmin(interaction))) {
+        return;
+      }
+
       await interaction.deferReply();
 
       const delay = interaction.options.getNumber("delay") || 0;
@@ -92,6 +174,70 @@ export const restartCommand: Command = {
         "Could not restart server"
       );
       await interaction.editReply({ embeds: [errorEmbed] });
+    }
+  },
+};
+
+export const serverCommand: Command = {
+  data: new SlashCommandBuilder()
+    .setName("server")
+    .setDescription("Server control actions")
+    .addSubcommand((subcommand) =>
+      subcommand.setName("start").setDescription("Start the server")
+    )
+    .addSubcommand((subcommand) =>
+      subcommand.setName("stop").setDescription("Stop the server")
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("restart")
+        .setDescription("Restart the server")
+        .addNumberOption((option) =>
+          option
+            .setName("delay")
+            .setDescription("Delay in seconds before restart")
+            .setMinValue(0)
+            .setMaxValue(300)
+            .setRequired(false)
+        )
+    ),
+
+  async execute(interaction: ChatInputCommandInteraction, api: BackendAPI) {
+    if (!(await ensureAdmin(interaction))) {
+      return;
+    }
+
+    const subcommand = interaction.options.getSubcommand();
+    await interaction.deferReply();
+
+    try {
+      if (subcommand === "start") {
+        await api.startServer();
+        const embed = createSuccessEmbed("Server Start", "Server start initiated");
+        await interaction.editReply({ embeds: [embed] });
+      } else if (subcommand === "stop") {
+        await api.stopServer();
+        const embed = createSuccessEmbed("Server Stop", "Server stop initiated");
+        await interaction.editReply({ embeds: [embed] });
+      } else {
+        const delay = interaction.options.getNumber("delay") || 0;
+        await api.restartServer(delay);
+        const embed = createSuccessEmbed(
+          "Server Restart",
+          `Server restart initiated${delay > 0 ? ` in ${delay}s` : ""}`
+        );
+        await interaction.editReply({ embeds: [embed] });
+      }
+    } catch (error) {
+      logger.error(
+        "Server control failed",
+        error instanceof Error ? error : new Error(String(error))
+      );
+      const embed = createErrorEmbed(
+        "Server Command Failed",
+        "Server action could not be completed"
+      );
+      await interaction.editReply({ embeds: [embed] });
     }
   },
 };
@@ -140,6 +286,28 @@ export const pluginsCommand: Command = {
             .setDescription("Modrinth project ID")
             .setRequired(true)
         )
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("update")
+        .setDescription("Update a plugin by Modrinth project ID")
+        .addStringOption((option) =>
+          option
+            .setName("project_id")
+            .setDescription("Modrinth project ID")
+            .setRequired(true)
+        )
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("upload")
+        .setDescription("Upload a plugin jar")
+        .addAttachmentOption((option) =>
+          option
+            .setName("file")
+            .setDescription("Plugin jar file")
+            .setRequired(true)
+        )
     ),
 
   async execute(interaction: ChatInputCommandInteraction, api: BackendAPI) {
@@ -150,7 +318,20 @@ export const pluginsCommand: Command = {
     } else if (subcommand === "list") {
       await handlePluginList(interaction, api);
     } else if (subcommand === "install") {
+      if (!(await ensureAdmin(interaction))) {
+        return;
+      }
       await handlePluginInstall(interaction, api);
+    } else if (subcommand === "update") {
+      if (!(await ensureAdmin(interaction))) {
+        return;
+      }
+      await handlePluginUpdate(interaction, api);
+    } else if (subcommand === "upload") {
+      if (!(await ensureAdmin(interaction))) {
+        return;
+      }
+      await handlePluginUpload(interaction, api);
     }
   },
 };
@@ -352,9 +533,18 @@ async function handlePluginBrowse(
 
         installCollector.on("collect", async (btnI) => {
           if (btnI.customId.startsWith("install_")) {
+            if (!hasAdminRoleFromMember(btnI.member)) {
+              const errorEmbed = createErrorEmbed(
+                "Permission Denied",
+                "You do not have permission to install plugins"
+              );
+              await btnI.reply({ embeds: [errorEmbed], ephemeral: true });
+              return;
+            }
+
             await btnI.deferUpdate();
             try {
-              await api.installPlugin(projectId, "latest"); // You'd fetch actual version
+              await api.installPlugin(projectId);
               const successEmbed = createSuccessEmbed(
                 "Plugin Installed",
                 `${plugin.title} has been installed successfully!`
@@ -447,7 +637,7 @@ async function handlePluginInstall(
     await interaction.deferReply();
     const projectId = interaction.options.getString("project_id", true);
 
-    await api.installPlugin(projectId, "latest");
+    await api.installPlugin(projectId);
 
     const embed = createSuccessEmbed(
       "Plugin Installed",
@@ -462,6 +652,71 @@ async function handlePluginInstall(
     const errorEmbed = createErrorEmbed(
       "Installation Failed",
       "Could not install plugin"
+    );
+    await interaction.editReply({ embeds: [errorEmbed] });
+  }
+}
+
+async function handlePluginUpdate(
+  interaction: ChatInputCommandInteraction,
+  api: BackendAPI
+) {
+  try {
+    await interaction.deferReply();
+    const projectId = interaction.options.getString("project_id", true);
+
+    await api.updatePlugin(projectId);
+
+    const embed = createSuccessEmbed(
+      "Plugin Updated",
+      "Plugin `" + projectId + "` has been updated successfully!"
+    );
+    await interaction.editReply({ embeds: [embed] });
+  } catch (error) {
+    logger.error(
+      "Plugin update failed",
+      error instanceof Error ? error : new Error(String(error))
+    );
+    const errorEmbed = createErrorEmbed(
+      "Update Failed",
+      "Could not update plugin"
+    );
+    await interaction.editReply({ embeds: [errorEmbed] });
+  }
+}
+
+async function handlePluginUpload(
+  interaction: ChatInputCommandInteraction,
+  api: BackendAPI
+) {
+  try {
+    await interaction.deferReply({ ephemeral: true });
+    const attachment = interaction.options.getAttachment("file", true);
+
+    if (!attachment.name.endsWith(".jar")) {
+      const errorEmbed = createErrorEmbed(
+        "Invalid File",
+        "Only .jar files are allowed"
+      );
+      await interaction.editReply({ embeds: [errorEmbed] });
+      return;
+    }
+
+    await api.uploadPlugin(attachment.url, attachment.name);
+
+    const embed = createSuccessEmbed(
+      "Plugin Uploaded",
+      "Uploaded `" + attachment.name + "` successfully!"
+    );
+    await interaction.editReply({ embeds: [embed] });
+  } catch (error) {
+    logger.error(
+      "Plugin upload failed",
+      error instanceof Error ? error : new Error(String(error))
+    );
+    const errorEmbed = createErrorEmbed(
+      "Upload Failed",
+      "Could not upload plugin"
     );
     await interaction.editReply({ embeds: [errorEmbed] });
   }
