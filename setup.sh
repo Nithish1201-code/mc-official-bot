@@ -216,6 +216,7 @@ prompt_crafty_api_token() {
   local token=""
   read -sp "Enter Crafty API token (press Enter to skip): " token
   echo
+  token=$(echo "$token" | tr -d '[:space:]')
   echo "$token"
 }
 
@@ -374,6 +375,9 @@ create_env_files() {
   local crafty_allow_insecure="$9"
   local server_loader="${10}"
   local minecraft_version="${11}"
+
+  discord_token=$(echo "$discord_token" | tr -d '[:space:]')
+  crafty_api_token=$(echo "$crafty_api_token" | tr -d '[:space:]')
   
   log_info "Creating environment files..."
   
@@ -457,6 +461,10 @@ validate_env_files() {
 
   if ! grep -q "^DISCORD_BOT_TOKEN=[^[:space:]]\+$" bot/.env; then
     log_warn "bot/.env has invalid DISCORD_BOT_TOKEN format"
+  fi
+
+  if grep -q "^CRAFTY_API_TOKEN=\S" backend/.env && ! grep -q "^CRAFTY_API_TOKEN=[^[:space:]]\+$" backend/.env; then
+    log_warn "backend/.env has invalid CRAFTY_API_TOKEN format"
   fi
 
   if [ $has_error -ne 0 ]; then
