@@ -35,120 +35,98 @@ log_error() {
 
 check_command() {
   if command -v "$1" &> /dev/null; then
-    create_env_files() {
-      local api_key="$1"
-      local discord_token="$2"
-      local discord_app_id="$3"
-      local minecraft_path="$4"
-      local crafty_path="$5"
-      local crafty_api_url="$6"
-      local crafty_api_token="$7"
-      local crafty_server_id="$8"
-      local crafty_allow_insecure="$9"
-      local server_loader="${10}"
-      local minecraft_version="${11}"
+    return 0
+  else
+    return 1
+  fi
+}
 
-      discord_token=$(echo "$discord_token" | tr -d '[:space:]')
-      crafty_api_token=$(echo "$crafty_api_token" | tr -d '[:space:]')
-      discord_app_id=$(echo "$discord_app_id" | tr -d '[:space:]')
+install_nodejs() {
+  log_info "Installing Node.js..."
 
-      log_info "Creating environment file..."
-
-      rm -f .env
-      {
-        printf 'NODE_ENV=production\n'
-        printf 'PORT=3000\n'
-        printf 'API_KEY=%s\n' "$api_key"
-        printf 'LOG_LEVEL=info\n'
-        printf 'LOG_FORMAT=json\n'
-        printf 'MINECRAFT_PATH=%s\n' "$minecraft_path"
-        printf 'CRAFTY_PATH=%s\n' "$crafty_path"
-        printf 'CRAFTY_API_URL=%s\n' "$crafty_api_url"
-        printf 'CRAFTY_API_TOKEN=%s\n' "$crafty_api_token"
-        printf 'CRAFTY_SERVER_ID=%s\n' "$crafty_server_id"
-        printf 'CRAFTY_ALLOW_INSECURE=%s\n' "$crafty_allow_insecure"
-        printf 'SERVER_LOADER=%s\n' "$server_loader"
-        printf 'MINECRAFT_VERSION=%s\n' "$minecraft_version"
-        printf 'DISCORD_BOT_TOKEN=%s\n' "$discord_token"
-        printf 'DISCORD_APPLICATION_ID=%s\n' "$discord_app_id"
-        printf 'BACKEND_URL=http://localhost:3000\n'
-        printf 'BACKEND_API_KEY=%s\n' "$api_key"
-        printf 'BOT_ADMIN_ROLE_IDS=\n'
-        printf 'BOT_ALERT_CHANNEL_ID=\n'
-        printf 'BOT_STATUS_POLL_SECONDS=60\n'
-        printf 'BOT_AUTO_RESTART_ON_DOWN=false\n'
-      } > .env
-
-      chmod 600 .env
-      log_success "Environment file created with secure permissions (600)"
-
-      if [ -z "$discord_token" ]; then
-        log_warn "No Discord token provided - update .env manually before starting"
-      else
-        log_success "Discord token configured"
-      fi
+  if check_command curl; then
+    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - || {
+      log_warn "NodeSource failed, using distribution package"
     }
+  fi
 
-    validate_env_files() {
-      local has_error=0
+  sudo apt-get update
+  sudo apt-get install -y nodejs npm
 
-      if [ ! -f .env ]; then
-        log_error "Missing environment file (.env)"
-        return 1
-      fi
+  log_success "Node.js and npm installed"
+}
 
-      if grep -qE "\[(INFO|SUCCESS|WARN|ERROR)\]" .env; then
-        log_error "Environment file contains log output; please re-run setup"
-        return 1
-      fi
+install_dependencies() {
+  log_info "Checking system dependencies..."
 
-      if ! grep -q "^API_KEY=\S" .env; then
-        log_error ".env missing API_KEY"
-        has_error=1
-      fi
+  local missing=()
 
-      if ! grep -q "^BACKEND_API_KEY=\S" .env; then
-        log_error ".env missing BACKEND_API_KEY"
-        has_error=1
-      fi
+  if ! check_command node; then
+    missing+=("nodejs")
+  fi
 
-      if ! grep -q "^DISCORD_BOT_TOKEN=\S" .env; then
-        log_error ".env missing DISCORD_BOT_TOKEN"
-        has_error=1
-      fi
+  if ! check_command npm; then
+    missing+=("npm")
+  fi
 
-      if ! grep -q "^DISCORD_BOT_TOKEN=[^[:space:]]\+$" .env; then
-        log_error ".env has invalid DISCORD_BOT_TOKEN format"
-        has_error=1
-      fi
+  if ! check_command git; then
+    missing+=("git")
+  fi
 
-      if grep -q "^CRAFTY_API_TOKEN=\S" .env && ! grep -q "^CRAFTY_API_TOKEN=[^[:space:]]\+$" .env; then
-        log_error ".env has invalid CRAFTY_API_TOKEN format"
-        has_error=1
-      fi
+  if ! check_command curl; then
+    missing+=("curl")
+  fi
 
-      if grep -q "^CRAFTY_API_URL=\S" .env && ! grep -q "^CRAFTY_API_TOKEN=\S" .env; then
-        log_error ".env missing CRAFTY_API_TOKEN"
-        has_error=1
-      fi
+  if ! check_command jq; then
+    missing+=("jq")
+  fi
 
-      if grep -q "^CRAFTY_API_TOKEN=\S" .env && ! grep -q "^CRAFTY_SERVER_ID=\S" .env; then
-        log_error ".env missing CRAFTY_SERVER_ID"
-        has_error=1
-      fi
+  if [ ${#missing[@]} -gt 0 ]; then
+    log_warn "Missing dependencies: ${missing[*]}"
+    sudo apt-get update
 
-      if [ $has_error -ne 0 ]; then
-        return 1
-      fi
+    for dep in "${missing[@]}"; do
+      case "$dep" in
+        nodejs)
+          install_nodejs
+          ;;
+        npm)
+          sudo apt-get install -y npm
+          ;;
+        *)
+          sudo apt-get install -y "$dep"
+          ;;
+      esac
+    done
+  fi
 
-      log_success "Environment file validated"
+  log_success "All dependencies satisfied"
+}
+
+detect_crafty() {
+  log_info "Detecting Crafty Controller installation..."
+
+  local search_paths=(
+    "/opt/crafty"
+    "/home/crafty"
+    "/root/crafty"
+    "/var/opt/minecraft/crafty/crafty-4"
+    "/var/opt/minecraft/craft/crafty-4"
+    "$HOME/crafty"
+  )
+
+  for path in "${search_paths[@]}"; do
+    if [ -d "$path" ]; then
+      log_success "Found Crafty at: $path"
+      echo "$path"
       return 0
-    }
+    fi
+  done
+
   log_warn "Crafty not found in standard locations"
-  
-  # Prompt user for custom path
+
   read -p "Enter Crafty installation path (or press Enter to skip): " crafty_path
-  
+
   if [ -n "$crafty_path" ] && [ -d "$crafty_path" ]; then
     log_success "Using Crafty at: $crafty_path"
     echo "$crafty_path"
@@ -158,6 +136,116 @@ check_command() {
     echo ""
     return 1
   fi
+}
+
+create_env_files() {
+  local api_key="$1"
+  local discord_token="$2"
+  local discord_app_id="$3"
+  local minecraft_path="$4"
+  local crafty_path="$5"
+  local crafty_api_url="$6"
+  local crafty_api_token="$7"
+  local crafty_server_id="$8"
+  local crafty_allow_insecure="$9"
+  local server_loader="${10}"
+  local minecraft_version="${11}"
+
+  discord_token=$(echo "$discord_token" | tr -d '[:space:]')
+  crafty_api_token=$(echo "$crafty_api_token" | tr -d '[:space:]')
+  discord_app_id=$(echo "$discord_app_id" | tr -d '[:space:]')
+
+  log_info "Creating environment file..."
+
+  rm -f .env
+  {
+    printf 'NODE_ENV=production\n'
+    printf 'PORT=3000\n'
+    printf 'API_KEY=%s\n' "$api_key"
+    printf 'LOG_LEVEL=info\n'
+    printf 'LOG_FORMAT=json\n'
+    printf 'MINECRAFT_PATH=%s\n' "$minecraft_path"
+    printf 'CRAFTY_PATH=%s\n' "$crafty_path"
+    printf 'CRAFTY_API_URL=%s\n' "$crafty_api_url"
+    printf 'CRAFTY_API_TOKEN=%s\n' "$crafty_api_token"
+    printf 'CRAFTY_SERVER_ID=%s\n' "$crafty_server_id"
+    printf 'CRAFTY_ALLOW_INSECURE=%s\n' "$crafty_allow_insecure"
+    printf 'SERVER_LOADER=%s\n' "$server_loader"
+    printf 'MINECRAFT_VERSION=%s\n' "$minecraft_version"
+    printf 'DISCORD_BOT_TOKEN=%s\n' "$discord_token"
+    printf 'DISCORD_APPLICATION_ID=%s\n' "$discord_app_id"
+    printf 'BACKEND_URL=http://localhost:3000\n'
+    printf 'BACKEND_API_KEY=%s\n' "$api_key"
+    printf 'BOT_ADMIN_ROLE_IDS=\n'
+    printf 'BOT_ALERT_CHANNEL_ID=\n'
+    printf 'BOT_STATUS_POLL_SECONDS=60\n'
+    printf 'BOT_AUTO_RESTART_ON_DOWN=false\n'
+  } > .env
+
+  chmod 600 .env
+  log_success "Environment file created with secure permissions (600)"
+
+  if [ -z "$discord_token" ]; then
+    log_warn "No Discord token provided - update .env manually before starting"
+  else
+    log_success "Discord token configured"
+  fi
+}
+
+validate_env_files() {
+  local has_error=0
+
+  if [ ! -f .env ]; then
+    log_error "Missing environment file (.env)"
+    return 1
+  fi
+
+  if grep -qE "\[(INFO|SUCCESS|WARN|ERROR)\]" .env; then
+    log_error "Environment file contains log output; please re-run setup"
+    return 1
+  fi
+
+  if ! grep -q "^API_KEY=\S" .env; then
+    log_error ".env missing API_KEY"
+    has_error=1
+  fi
+
+  if ! grep -q "^BACKEND_API_KEY=\S" .env; then
+    log_error ".env missing BACKEND_API_KEY"
+    has_error=1
+  fi
+
+  if ! grep -q "^DISCORD_BOT_TOKEN=\S" .env; then
+    log_error ".env missing DISCORD_BOT_TOKEN"
+    has_error=1
+  fi
+
+  if ! grep -q "^DISCORD_BOT_TOKEN=[^[:space:]]\+$" .env; then
+    log_error ".env has invalid DISCORD_BOT_TOKEN format"
+    has_error=1
+  fi
+
+  if grep -q "^CRAFTY_API_TOKEN=\S" .env && ! grep -q "^CRAFTY_API_TOKEN=[^[:space:]]\+$" .env; then
+    log_error ".env has invalid CRAFTY_API_TOKEN format"
+    has_error=1
+  fi
+
+  if grep -q "^CRAFTY_API_URL=\S" .env && ! grep -q "^CRAFTY_API_TOKEN=\S" .env; then
+    log_error ".env missing CRAFTY_API_TOKEN"
+    has_error=1
+  fi
+
+  if grep -q "^CRAFTY_API_TOKEN=\S" .env && ! grep -q "^CRAFTY_SERVER_ID=\S" .env; then
+    log_error ".env missing CRAFTY_SERVER_ID"
+    has_error=1
+  fi
+
+  if [ $has_error -ne 0 ]; then
+    return 1
+  fi
+
+  log_success "Environment file validated"
+  return 0
 }
 
 # ============================================================================
@@ -626,44 +714,6 @@ create_config() {
 EOF
   
   log_success "Configuration created"
-}
-
-create_env_files() {
-  local api_key="$1"
-  local discord_token="$2"
-  local discord_app_id="$3"
-  
-  log_info "Creating environment files..."
-  
-  # Backend environment
-  cat > backend/.env << EOF
-NODE_ENV=production
-PORT=3000
-API_KEY=$api_key
-LOG_LEVEL=info
-EOF
-  
-  # Bot environment with Discord credentials
-  cat > bot/.env << EOF
-NODE_ENV=production
-DISCORD_BOT_TOKEN=$discord_token
-DISCORD_APPLICATION_ID=$discord_app_id
-BACKEND_URL=http://localhost:3000
-BACKEND_API_KEY=$api_key
-LOG_LEVEL=info
-EOF
-  
-  # Set secure permissions
-  chmod 600 backend/.env
-  chmod 600 bot/.env
-  
-  log_success "Environment files created with secure permissions (600)"
-  
-  if [ -z "$discord_token" ]; then
-    log_warn "No Discord token provided - update bot/.env manually before starting"
-  else
-    log_success "Discord token configured"
-  fi
 }
 
 # ============================================================================
