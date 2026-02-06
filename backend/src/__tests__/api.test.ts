@@ -110,6 +110,7 @@ describe("Backend API Integration Tests", () => {
       expect(body.status).toHaveProperty("online");
       expect(body.status).toHaveProperty("playerCount");
       expect(body.status).toHaveProperty("cpuUsage");
+      expect(body.status).toHaveProperty("tps");
     });
   });
 

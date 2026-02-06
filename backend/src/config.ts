@@ -11,6 +11,18 @@ const rawConfig = {
     process.env.HOME ||
     "/" + "opt/minecraft",
   craftyPath: process.env.CRAFTY_PATH,
+  craftyApiUrl: process.env.CRAFTY_API_URL,
+  craftyApiToken: process.env.CRAFTY_API_TOKEN,
+  craftyServerId: process.env.CRAFTY_SERVER_ID,
+  craftyAllowInsecure: process.env.CRAFTY_ALLOW_INSECURE === "true",
+  serverLoader: process.env.SERVER_LOADER as
+    | "paper"
+    | "spigot"
+    | "bukkit"
+    | "fabric"
+    | "vanilla"
+    | undefined,
+  minecraftVersion: process.env.MINECRAFT_VERSION,
   environment:
     (process.env.NODE_ENV as "development" | "production" | "test") ||
     "production",

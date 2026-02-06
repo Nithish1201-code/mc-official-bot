@@ -8,6 +8,7 @@ export function createStatusEmbed(status: any): EmbedBuilder {
       { name: "Status", value: status.status.online ? "🟢 Online" : "🔴 Offline", inline: true },
       { name: "Players", value: `${status.status.playerCount}/${status.status.maxPlayers}`, inline: true },
       { name: "Ping", value: `${status.status.ping}ms`, inline: true },
+      { name: "TPS", value: `${status.status.tps.toFixed(2)}`, inline: true },
       { name: "CPU", value: `${status.status.cpuUsage.toFixed(1)}%`, inline: true },
       { name: "RAM", value: `${status.status.ramUsage.toFixed(1)}%`, inline: true },
       { name: "Uptime", value: `${Math.floor(status.status.uptime / 3600)}h`, inline: true }
