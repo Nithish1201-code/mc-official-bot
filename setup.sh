@@ -40,7 +40,6 @@ check_command() {
     return 1
   fi
 }
-
 install_nodejs() {
   log_info "Installing Node.js..."
 
@@ -236,8 +235,7 @@ validate_env_files() {
   fi
 
   if grep -q "^CRAFTY_API_TOKEN=\S" .env && ! grep -q "^CRAFTY_SERVER_ID=\S" .env; then
-    log_error ".env missing CRAFTY_SERVER_ID"
-    has_error=1
+    log_warn ".env missing CRAFTY_SERVER_ID (Crafty actions will be disabled)"
   fi
 
   if [ $has_error -ne 0 ]; then
@@ -372,12 +370,20 @@ list_crafty_servers() {
     -H "Authorization: Bearer $token" \
     "$api_url/api/v2/servers")
 
-  if ! echo "$response" | jq -e 'type == "array"' > /dev/null 2>&1; then
+  local servers
+  servers=$(echo "$response" | jq -e '
+    if type == "array" then .
+    elif type == "object" and has("data") and (.data | type == "array") then .data
+    else empty
+    end
+  ' 2>/dev/null) || true
+
+  if [ -z "$servers" ]; then
     log_warn "Crafty API server list returned unexpected response"
     return 1
   fi
 
-  echo "$response" | jq -r '.[] | "\(.server_id)\t\(.server_name)\t\(.path)"'
+  echo "$servers" | jq -r '.[] | "\(.server_id)\t\(.server_name)\t\(.path)"'
 }
 
 select_crafty_server() {
@@ -736,6 +742,16 @@ main() {
     if [ -n "$selected_server" ]; then
       crafty_server_id=$(echo "$selected_server" | cut -d'|' -f1)
       minecraft_path=$(echo "$selected_server" | cut -d'|' -f2)
+    fi
+  fi
+
+  if [ -n "$crafty_api_token" ] && [ -z "$crafty_server_id" ]; then
+    read -p "Enter Crafty server ID (optional, press Enter to skip): " manual_crafty_id
+    manual_crafty_id=$(echo "$manual_crafty_id" | tr -d '[:space:]')
+    if [ -n "$manual_crafty_id" ]; then
+      crafty_server_id="$manual_crafty_id"
+    else
+      log_warn "No Crafty server ID set; Crafty actions will be disabled"
     fi
   fi
 
